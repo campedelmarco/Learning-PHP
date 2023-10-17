@@ -3571,3 +3571,124 @@ Il file di configurazione `php.ini` permette di specificare alcune direttive per
 - `upload_max_filesize` permette di specificare la dimensione massima che un file caricato può avere. È sempre bene avere una validazione della dimensione nel codice.
 - `max_file_uploads` permette di specificare il massimo numero di file che possono essere caricati in una sola richiesta
 - `max_input_time`, una direttiva che non riguarda solamente i file che imposta il numero massimo di secondi per i quali lo script può ricevere input, il che include anche il caricamento di file
+
+# MVC Pattern
+Il pattern MVC (*Model*, *View*, *Controller*) è un modello architturale che permette di separare i dati e la logica di business dal layer di presentazione.
+
+Quando un dispositivo effettua una richiesta, questa passa attraverso il controller, il quale fa da intermediario per il layer di presentazione (*view*) e i modelli (*models*). Il suo lavoro è quello di gestire richieste, risposte, risorse, ecc.
+Il lavoro del modello è quello di gestire la logica di business, gestendo i dati dell'applicazione, processando e immagazzinare i dati che possono essere salvati nel database (o in qualsiasi altra struttura dati). Il modello prende le informazioni dal *controller*, le passa se necessario a un qualche tipo di struttura per immagazzinare dati, recupera i dati dalla struttura e li passa al controller.
+Il *controller* passa le informazioni alla *view*, la quale è renderizzata a schermo. Nella maggior parte dei casi le *view* sono dei file PHP che contengono per la maggior parte codice HTML, ma rendono anche più semplice usare motori per template come *Twig* e *Blade*. Le *view* possono essere fatte anche in framework come React: in questo caso di parla di *View Components*, ovvero file JavaScript. In questo caso i file JavaScript agiscono in un certo senso come *view* che comunicano con il *controller*.
+
+Una possibile rappresentazione dell'MVC è la seguente
+
+![Base MVC](imgs/BaseMVC.svg)
+
+oppure, considerando che sia il *controller* a gestire tutta la comunicazione, si può ottenere la seguente rappreentazione.
+
+![Base MVC with Controller Managing the Communication](imgs/BaseMVCController.svg)
+
+In questa struttura è possibile considerare anche il *router*, che rimane tra il client e il *controller*, che decide in quale *controller* eseguire la richiesta.
+
+![MVC with Router](imgs/MVC-Router.svg)
+
+Oltre al poter rapprensetare il pattern MVC in molti modi diversi, ne esistono anche molte implementazioni differenti. In questo caso il *model* comunica con il *controller*, e il *controller* cominica con la *view*, ma è anche possibile che *model* e *view* comunichino tra di loro senza avere *controller* come intermediario, e quindi *controller* non comunicherebbe con la *view*. In questo caso, quando lo stato del *model* cambia la *view* viene aggiornata (attraverso un pattern *observer* o modificando direttamente la *view*).
+
+![MVC with Controller not communicating with View](imgs/MVC-ControllerNoCommView.svg)
+
+
+La più usata è effettivamente quest'ultima.
+
+Esistono molti framework PHP che implementano questo modello, come Laravel, Symfony, Zend Framework, ecc., seppur con implementazioni diverse.
+
+La complessità aggiuntiva derivata dall'introduzione di questo modello garantisce una migliroe struttura della codebase, separando i tre layer. Ogin singolo layer può essere ulteriormente diviso usando altri pattern (come *Database Abstraction* per *Model*).
+
+## Implementazione
+### View
+A partire dal codice attuale, che implementa delle route, è possibile rinominare le classi in *controller*.
+Al posto di ritornare codice HTML dai metodi del *controller*, è meglio ritornare delle *view*, quindi è necessario implementare una gestione delle *view* di base. Per prima cosa è necessario definire dove salvare le *view*, il che può essere in una cartella `views` (all'interno della cartella `src`, non di `public`). Al suo interno è possibile creare un file di *view* per ogni azione che necessita di renderizzare qualcosa, quindi `HomeController::index`, `InvoiceController::index` e `InvoiceController::create`. All'interno di questi file sarà presente il codice HTML.
+
+Per permettere ai controller di renderizzare le *view* è necessario creare una classe `View` che implementi un metodo `render()`. Questo metodo deve restituire una stringa, quindi non è sufficiente fare un `import` del file con la *view*: per convertire a stringa un file importato è possibile utilizzare l'output buffering. L'output buffer può essere avviato prima di includere il file, per poi ottenerne il contenuto e ritornarlo come stringa una volta finito l'import.
+```php
+ob_start();
+include VIEW_PATH . '/' . $this->view . '.php';
+return ob_get_clean();
+```
+Quando si richiama `ob_get_clean()` l'output buffer viene svuotato e ne viene ritornato il contenuto.
+
+Il codice finale della classe `View` è il seguente
+```php
+declare(strict_types=1);
+
+namespace App;
+use App\Exceptions\ViewNotFoundException;
+
+class View {
+	public function __construct(protected string $view, protected array $params = []) {
+		
+	}
+
+	public static function make(string $view, array $params = []) : static {
+		return new static($view, $params);
+	}
+
+	public function render() : bool|string {
+		$viewPath = VIEW_PATH . '/' . $this->view . '.php';
+
+		if(!file_exists($viewPath)) {
+			throw new ViewNotFoundException();
+		}
+
+		ob_start();
+		include $viewPath;
+		return (string) ob_get_clean();
+	}
+
+	public function __toString() : string {
+		return $this->render();
+	}
+}
+```
+e chi la utilizza sfrutta il seguente codice
+```php
+public function index(): View {
+	return View::make('index');
+}
+```
+
+In questa implementazione non esiste il supporto per i parametri, inoltre non esiste un supporto per i *layout* (si sta renderizzando direttamente una *view*, quindi per renderizzare una pagina HTML completa il codice dovrebbe essere inserito in ogni *view*).
+
+Il primo problema richiede di implementare un modo per passare dei parametri dal *controller* alle *view*, permettendo di accedervi internamente ai file *view*.
+Nel *controller* i dati vengono passati come segue
+```php
+public function index(): View {
+	return View::make('index', ['foo' => 'bar']);
+}
+```
+Si supponga ora di voler stampare la variabile all'interno della *view* `index.php`: dal momento che i parametri sono salvati nella proprietà `params` all'interno della classe `View` e che il file *view* viene incluso all'interno della classe `View`, questo ha accesso direttamente alla proprietà. Questo approccio non è chiaramente il migliore, dal momento che non si vuole che le *view* possano accedere direttamente ai parametri.
+
+Un modo migliore per ottenere lo stesso risultato è quello di implementare un getter, il quale restituisce i dati contenuti dell'array `params`.
+```php
+public function __get(string $name) {
+	return $this->params[$name] ?? null;
+}
+```
+I dati vengono acceduti con la sintassi `<?= $this->foo ?>`.
+
+Anche questo approccio non è il migliore, dal momento che non si vuole accedere ai dati usando la variabile `$this`. Il modo migliore sarebbe quello di accedere ai dati semplicemente richiamando il nome della variabile, tipo `<?= $foo ?>`. Per ottenere questo risultato è necessario semplicemente iterare su tutte le variabili presenti in `params` e creare per ognuna di essere una variabile, con la sintassi
+```php
+foreach ($this->params as $key => $value) {
+	$$key = $value;
+}
+```
+
+In alternativa è possibile usare la funzione `extract` che automatizza questo processo.
+```php
+extract($this->params);
+```
+
+Questi ultimi due approcci richiedono una particolare attenzione, dal momento che se vengono passati dei dati forniti dall'utente si possono introdurre vulnerabilità.
+
+### Model
+I *model* possono usare qualsiasi forma per salvare dati.
+
+La validazione dei dati può essere fatta sia nel *model* che nel *controller*, ma la linea generale è che la validazione dei form dovrebbe essere delegata al *controller*, o ancora meglio ad un layer separato dal *controller* che gestisce tutte le richieste da form (come fa Laravel).
