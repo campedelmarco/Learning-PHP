@@ -999,6 +999,11 @@ Per permettere di eseguire i container anche senza una bash attiva è possibile 
 docker compose up -d
 ```
 
+Per ricostruire un container già in esecuzione, come nel caso in cui si modifichino dei file di configurazione, è possibile usare il comando
+```
+docker-compose up -d --build
+```
+
 # PHP 8 Orientato agli Oggetti
 Nella programmazione orientata agli oggetti si uniscono funzioni e variabili correlati in una classe, della quale si creano degli oggetti. È possibile accedere agli oggetti e chiamare le funzioni degli oggetti se questi sono pubblicamente accessibili. Nella programmazione orientata agli oggetti le variabili dell'oggetto sono chiamate *proprietà* e le funzioni sono chiamate *metodi*, inoltre gli oggetti sono istanze delle classi.
 
@@ -3488,3 +3493,81 @@ con i parametri
 Da PHP 7.3 è possibile passare un array associativo di opzioni dopo il valore del cookie, composto come segue: `[expiration, path, domain, secure, httponly, samesite]`.
 
 Anche i cookie devono essere impostati prima di qualsiasi output.
+
+I cookie possono essere acceduti con la *superglobal* `$_COOKIE`. Per cancellare un cookie è sufficiente impostare il suo tempo di scadenza nel passato, oltre a fare un unset dalla *superglobal* `$_COOKIE` in modo da non averli presenti già nella richiesta nella quale vengono unsettati.
+
+## $_FILES
+Per accedere ai file caricati è possibile utilizzare la *superglobal* `$_FILES`.
+Come esempio si returna un form in `Home::index()`, essendo consci che questo comportamento non è ottimale e il metodo migliore è quello di ritornare una view.
+```php
+public function index(): string {
+	return
+		<<<FORM
+			<form action="/upload" method="post">
+				<input type="file" name="receipt" />
+				<button ype="submit">Upload</input>
+			</form>
+		FORM;
+
+}
+
+public function upload() {
+	var_dump($_FILES);
+}
+```
+Oltre a ciò, si crea una nuova route POST per la `requestUri` `/upload`.
+
+Facendo un semplice `var_dump` non verrà mostrato niente (`array(0) { }`), dal momento che manca il tipo di codifica corretto, da impostare nel form per permettere l'invio di file come `enctype="multipart/form-data"`. L'array associativo *superglobal* `$_FILES` contiene una entry per ogni file caricato, dove la chiave della entry è il `name` dell'`input type="file"` e il contenuto della entry è un altro array associativo con le seguenti informazioni
+- `name`, il nome originale del file
+- `type`, il MIME Type del file
+- `tmp_name`, il percorso e nome del file all'interno del server
+- `erorr`, il codice di errore. I suoi possibili valori sono
+	- 0: `UPLOAD_ERR_OK`, nessun errore (il file è stato caricato con successo)
+	- 1: `UPLOAD_ERR_INI_SIZE`, il file caricato ha una dimensione che supera quella specificata nella direttiva `upload_max_filesize` in `php.ini`
+	- 2: `UPLOAD_ERR_FORM_SIZE`, il file caricato ha una dimensione che supera quella specificata in `MAX_FILE_SIZE` nel form HTML
+	- 3: `UPLOAD_ERR_PARTIAL`, il file è stato caricato parzialmente
+	- 4: `UPLOAD_ERR_NO_FILE`, non è stato caricato alcun file
+	- 6: `UPLOAD_ERR_NO_TMP_DIR`, la cartella temporanea per il salvataggio dei file non è presente
+	- 7: `UPLOAD_ERR_CANT_WRITE`, la scrittura del file su disco è fallita
+	- 8: `UPLOAD_ERR_EXTENSION`, un'estensione di PHP ha interrotto il caricamento del file
+- `size`, la dimensione del file in byte
+
+Qualsiasi dato caricato dall'utente deve essere validato, controllando ad esempio il tipo di file caricato a seconda dell'applicazione, oppure la dimensione massima.
+
+Ogni file caricato in PHP viene salvato temporaneamente nella cartella temporanea del server, che può essere impostata nel file di configurazione `php.ini`. Dal momento che alla fine della richiesta i file nella cartella temporanea sono eliminati, è necessario spostarli in un'altra cartella, oppure in un altro server. Per spostare un file dalla cartella temporanea ad una cartella locale è possibile usare la funzione `move_uploaded_file`, che si assicura che il file sia un file caricato valido (quindi che sia stato caricato attraverso una richiesta POST di HTTP).
+Il percorso dove spostare il file può essere salvato nell'`index.php`, dal momento che è il file che permette di eseguire l'applicazione.
+```php
+define('STORAGE_PATH', __DIR__ . '/../storage');
+```
+
+```php
+$filePath = STORAGE_PATH . '/' . $_FILES['receipt']['name'];
+
+move_uploaded_file($_FILES['receipt']['tmp_name'], $filePath);
+```
+
+È anche possiible cariare più file nel form con `name` diverso, oppure anche con lo stesso `name` con la sintassi
+```php
+<input type="file" name="receipt[]" />
+<input type="file" name="receipt[]" />
+```
+Questa produrrà nell'array `$_FILES` un'unico elemento con chiave `receipt` e stessi valori di prima, ma ogni valore sarà a sua volta un array associativo che indica le informazioni dei due file. Con un esempio
+```php
+array(1) {
+	["receipt"] => array(5) {
+		["name"] => array(2) {
+			[0] => string(15) "Campedel-CV.pdf"
+			[1] => string(18) "Campedel-Photo.jpg"
+		}
+		...
+	}
+}
+```
+
+### Direttive di `php.ini`
+Il file di configurazione `php.ini` permette di specificare alcune direttive per l'upload dei file. Le più comuni sono le seguenti
+- `file_uploads` permette di specificare se consentire o meno l'upload di file (può assumere valore "1" o "0")
+- `upload_tmp_dir` permette di specificare il percorso della cartella temporanea per l'upload dei file
+- `upload_max_filesize` permette di specificare la dimensione massima che un file caricato può avere. È sempre bene avere una validazione della dimensione nel codice.
+- `max_file_uploads` permette di specificare il massimo numero di file che possono essere caricati in una sola richiesta
+- `max_input_time`, una direttiva che non riguarda solamente i file che imposta il numero massimo di secondi per i quali lo script può ricevere input, il che include anche il caricamento di file
