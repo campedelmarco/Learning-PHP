@@ -3564,6 +3564,8 @@ array(1) {
 }
 ```
 
+Per leggere un file è possibile usare la funzione `readfile()`, mentre per cancellarlo `unlink()`.
+
 ### Direttive di `php.ini`
 Il file di configurazione `php.ini` permette di specificare alcune direttive per l'upload dei file. Le più comuni sono le seguenti
 - `file_uploads` permette di specificare se consentire o meno l'upload di file (può assumere valore "1" o "0")
@@ -3692,3 +3694,32 @@ Questi ultimi due approcci richiedono una particolare attenzione, dal momento ch
 I *model* possono usare qualsiasi forma per salvare dati.
 
 La validazione dei dati può essere fatta sia nel *model* che nel *controller*, ma la linea generale è che la validazione dei form dovrebbe essere delegata al *controller*, o ancora meglio ad un layer separato dal *controller* che gestisce tutte le richieste da form (come fa Laravel).
+
+# Header HTTP
+Durante la comunicazione con un sito internet il client effettua una richiesta HTTP al server. Questa viene accettata, elaborata e vi viene inviata una risposta al client.
+La struttura del messaggio HTTP per la richiesta e la risposta è molto simile: in entrambe sono presenti gli header, ovvero delle informazioni aggiuntive rispetto a quelle contenute nel body. Gli header sono tipicamente raggruppati per ruolo, come *request*, *response*, *representation*, ecc. Gli header più importanti sono i seguenti
+- `Accept-*`: inviati con la richiesta, indicano quali sono i formati permessi e preferiti che la risposta deve avere
+- `Authorization`
+- `User-Agent`
+- `Cache-Control`
+- `Referer`
+- `Cookie`
+- `Location`: può essere usato per reindirizzare l'utente in una pagina o un URL diverso
+- `Set-Cookie`: viene utilizzato per scambiare cookie tra client e server
+- `Content-Type`: viene utilizzato per specificare il tipo della risorsa, quindi il formato dei dati presenti nella risposta
+
+Insieme agli header, vengono inviati nel messaggio anche lo *status code* e lo *status text*. Sono presenti una molteplicità di *status code*, visibili [qui](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status): questi sono organizzati in gruppi di codici come segue
+- 100 - 199 indicano stati di informazione
+- 200 - 299 indicano stati di successo (come 200 OK, 201 Created, 204 No Content)
+- 300 - 399 indicando stati di redirezione (301 Moved Permanently, 304 Not Modified)
+- 400 - 499 indicano stati di errore del client (401 Unauthorized, 403 Forbidden, 404 Not Found, 405 Method Not Allowed)
+- 500 - 509 indicando stati di errore del server (500 Internal Server Error, 502 Bad Gateway)
+
+--- 
+
+Al momento, all'interno del router, quando viene consultata una URI alla quale non è associata alcuna route viene mostrata una pagina di errore con status 200. Per gestire al meglio l'eccezione è possibile intercettare `RouteNotFoundException` e aggiungere dell'*error handling*, come ad esempio stampare il messaggio di errore con `echo $e->getMessage();` oppure renderizzare una *view* con una pagina di errore. Oltre a ciò è possibile impostare lo *status code* 404 impostando l'header corrispondente con `header('HTTP/1.1 404 Not Found')` (la versione del protocollo HTTP viene inserita *hard coded* ma è possibile interrogare l'applicazione che implementa il web server per sapere quale versione di HTTP usa). Un modo migliore per inserire lo *status code* è quello di usare la funzione `http_status_code()` con parametro `404`. Si ricordi che gli header devono esempre essere inviati prima di qualsiasi output (nonostante l'*output buffer* possa mitigare il problema). Per sapere se gli header sono stati già inviati è possibile usare la funzione `header_sent()`.
+
+La funzione `header` accetta due argomenti aggiuntivi opzionali, *replace* e *response_code*. Il primo permette di sostituire un header inviato in precedenza se se ne sta inviando uno con lo stesso nome (di default è impostato a `true`, ma se si imposta a `false` è possibile inviare lo stesso header più volte), mentre il secondo permette di inviare lo *status code* direttamente quando si impostano gli header.
+Quando si effettua una redirezione è necessario terminare lo script, altrimenti il codice successivo verrà eseguito ugualmente.
+
+Questo non è in realtà il modo migliore per gestire richieste e risposte, impostare header, ecc., infatti sarebbe necessario implementare le classi `Request` e `Response`.
